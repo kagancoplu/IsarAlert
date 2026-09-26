@@ -143,10 +143,10 @@ public class NotificationService {
         sb.append("📌 *").append(escape(listing.getTitle())).append("*\n\n");
 
         if (listing.getPrice() != null) {
-            sb.append("💰 Price: €").append(escape(listing.getPrice().toPlainString())).append("/month\n");
+            sb.append("💰 Price: €").append(escape(euros(listing.getPrice()))).append("/month\n");
         }
         if (listing.getRooms() != null) {
-            sb.append("🚪 Rooms: ").append(escape(listing.getRooms().toPlainString())).append("\n");
+            sb.append("🚪 Rooms: ").append(escape(listing.getRooms().stripTrailingZeros().toPlainString())).append("\n");
         }
         if (listing.getSizeSqm() != null) {
             sb.append("📐 Size: ").append(listing.getSizeSqm()).append(" m²\n");
@@ -166,6 +166,12 @@ public class NotificationService {
         sb.append("\n_Sent by IsarAlert 🏔️_");
 
         return sb.toString();
+    }
+
+    /** Euro amount without needless decimals: 1200.00 → "1200", 1200.5 → "1200.50". */
+    private static String euros(java.math.BigDecimal amount) {
+        java.math.BigDecimal stripped = amount.stripTrailingZeros();
+        return stripped.scale() <= 0 ? stripped.toPlainString() : amount.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
     }
 
     /**

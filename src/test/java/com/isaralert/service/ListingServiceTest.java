@@ -129,6 +129,34 @@ class ListingServiceTest {
         }
 
         @Test
+        @DisplayName("should not match too many rooms or too large an apartment")
+        void rejectsAboveMaximums() {
+            listing.setRooms(new BigDecimal("5"));
+            assertThat(listingService.findMatchingCriteria(listing)).isEmpty();
+            listing.setRooms(new BigDecimal("3"));
+            listing.setSizeSqm(120);
+            assertThat(listingService.findMatchingCriteria(listing)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("listings without a district pass district and U-Bahn filters")
+        void unknownDistrictPasses() {
+            criteria.setDistricts(List.of("Schwabing"));
+            criteria.setUbahnLines(List.of("U3"));
+            listing.setDistrict(null);
+            assertThat(listingService.findMatchingCriteria(listing)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("empty district and U-Bahn lists mean no filter")
+        void emptyListsMeanNoFilter() {
+            criteria.setDistricts(List.of());
+            criteria.setUbahnLines(List.of());
+            listing.setDistrict("Perlach");
+            assertThat(listingService.findMatchingCriteria(listing)).hasSize(1);
+        }
+
+        @Test
         @DisplayName("should match when district is in allowed list")
         void matchesAllowedDistrict() {
             criteria.setDistricts(List.of("Maxvorstadt", "Schwabing"));
@@ -207,6 +235,15 @@ class ListingServiceTest {
             listing.setPrice(new BigDecimal("9999"));
             assertThat(listingService.findMatchingCriteria(listing)).hasSize(1);
         }
+    }
+
+    @Test
+    @DisplayName("districtContains handles missing values")
+    void districtContainsNulls() {
+        assertThat(ListingService.districtContains(null, "Laim")).isFalse();
+        assertThat(ListingService.districtContains("Laim", null)).isFalse();
+        assertThat(ListingService.districtContains("Laim", " ")).isFalse();
+        assertThat(ListingService.districtContains("Berg-am-Laim", "berg am laim")).isTrue();
     }
 
     // ==================== Helpers ====================

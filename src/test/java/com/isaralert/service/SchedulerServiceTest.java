@@ -66,4 +66,31 @@ class SchedulerServiceTest {
         scheduler.runScanCycle();
         verify(scraper, times(2)).scrape(any());
     }
+
+    @Test
+    @DisplayName("a crash in the retry step doesn't break the scan cycle or block the next one")
+    void retryFailureIsContained() {
+        SearchCriteriaRepository criteriaRepository = mock(SearchCriteriaRepository.class);
+        User user = User.builder().id(1L).telegramChatId(123L).active(true).build();
+        when(criteriaRepository.findAllByActiveTrueAndUserActiveTrue())
+                .thenReturn(List.of(SearchCriteria.builder().id(1L).user(user).active(true).build()));
+        ListingScraper scraper = mock(ListingScraper.class);
+        when(scraper.scrape(any())).thenReturn(List.of());
+
+        NotificationService failingRetries = new NotificationService(
+                mock(NotificationRepository.class), mock(TelegramMessageSender.class)) {
+            @Override
+            public void retryFailedNotifications() {
+                throw new IllegalStateException("database unavailable");
+            }
+        };
+        SchedulerService scheduler = new SchedulerService(List.of(scraper),
+                new ListingService(mock(ListingRepository.class), criteriaRepository), failingRetries, criteriaRepository);
+
+        scheduler.runScanCycle();
+        scheduler.runScanCycle();
+
+        verify(scraper, times(2)).scrape(any());
+        assertThat(scheduler.isScanInProgress()).isFalse();
+    }
 }

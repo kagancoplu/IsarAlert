@@ -64,8 +64,10 @@ public abstract class AbstractListingScraper implements ListingScraper {
     protected void respectRateLimit() {
         try {
             long baseDelay = appProperties.getScraper().getRequestDelayMs();
-            long jitter = random.nextLong(baseDelay / 2); // 0 to 50% of base delay
+            // 0 to 50% of base delay; nextLong() needs a positive bound, so tiny delays get no jitter
+            long jitter = baseDelay >= 2 ? random.nextLong(baseDelay / 2) : 0;
             long totalDelay = baseDelay + jitter;
+            if (totalDelay <= 0) return;
             log.debug("Rate limiting: sleeping {}ms", totalDelay);
             Thread.sleep(totalDelay);
         } catch (InterruptedException e) {

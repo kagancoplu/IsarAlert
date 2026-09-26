@@ -62,6 +62,11 @@ public class SchedulerService {
         }
     }
 
+    /** Whether a scan cycle is currently running. */
+    public boolean isScanInProgress() {
+        return scanInProgress.get();
+    }
+
     private void doScanCycle() {
         Instant start = Instant.now();
         log.info("========== 🔍 Starting scan cycle ==========");

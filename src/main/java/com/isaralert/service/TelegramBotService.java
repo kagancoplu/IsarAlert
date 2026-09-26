@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.telegram.telegrambots.bots.DefaultBotOptions;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -44,6 +45,12 @@ public class TelegramBotService extends TelegramLongPollingBot implements Telegr
     private final SearchCriteriaService searchCriteriaService;
     private final ApplicationEventPublisher eventPublisher;
 
+    /** Telegram rejects longer messages; stay a little below its 4096-character limit. */
+    private static final int MAX_MESSAGE_LENGTH = 4000;
+
+    /** District lists longer than this are shortened in replies. */
+    private static final int MAX_DISTRICTS_DISPLAY_LENGTH = 300;
+
     /** In-memory conversation sessions keyed by Telegram chat ID. */
     private final Map<Long, CriteriaSession> sessions = new ConcurrentHashMap<>();
 
@@ -56,14 +63,22 @@ public class TelegramBotService extends TelegramLongPollingBot implements Telegr
     public TelegramBotService(
             @Value("${telegram.bot.token:}") String botToken,
             @Value("${telegram.bot.username:IsarAlertBot}") String botUsername,
+            @Value("${telegram.bot.api-url:https://api.telegram.org/bot}") String apiUrl,
             UserRepository userRepository,
             SearchCriteriaService searchCriteriaService,
             ApplicationEventPublisher eventPublisher) {
-        super(botToken);
+        super(botOptions(apiUrl), botToken);
         this.botUsername = botUsername;
         this.userRepository = userRepository;
         this.searchCriteriaService = searchCriteriaService;
         this.eventPublisher = eventPublisher;
+    }
+
+    /** Bot options pointing at the given Telegram API base URL (overridable so tests can use a fake server). */
+    private static DefaultBotOptions botOptions(String apiUrl) {
+        DefaultBotOptions options = new DefaultBotOptions();
+        options.setBaseUrl(apiUrl);
+        return options;
     }
 
     @Override
@@ -79,13 +94,15 @@ public class TelegramBotService extends TelegramLongPollingBot implements Telegr
 
         String text    = update.getMessage().getText().trim();
         Long   chatId  = update.getMessage().getChatId();
-        String firstName = update.getMessage().getFrom().getFirstName();
-        String username  = update.getMessage().getFrom().getUserName();
+        var    from    = update.getMessage().getFrom();
+        String firstName = from != null ? from.getFirstName() : null;
+        String username  = from != null ? from.getUserName() : null;
 
         log.debug("Message from {} (chatId={}): {}", username, chatId, text);
 
         try {
-            String command = text.split(" ")[0].toLowerCase();
+            // In group chats Telegram sends commands as "/start@IsarAlertBot" — strip the bot name
+            String command = text.split("\\s+")[0].toLowerCase().replaceFirst("@.*$", "");
 
             if (command.startsWith("/")) {
                 // Always handle slash commands immediately, even during a session
@@ -103,11 +120,11 @@ public class TelegramBotService extends TelegramLongPollingBot implements Telegr
                 // Non-command text while a wizard session is active
                 handleCriteriaStep(chatId, text);
             } else {
-                sendMessage(chatId, "❓ I didn't understand that. Type /help to see available commands.");
+                sendMessage(chatId, "❓ I didn't understand that\\. Type /help to see available commands\\.");
             }
         } catch (Exception e) {
             log.error("Error handling message from chatId {}: {}", chatId, e.getMessage());
-            try { sendMessage(chatId, "⚠️ Something went wrong. Please try again."); }
+            try { sendMessage(chatId, "⚠️ Something went wrong\\. Please try again\\."); }
             catch (TelegramApiException ex) { log.error("Failed to send error message", ex); }
         }
     }
@@ -185,26 +202,34 @@ public class TelegramBotService extends TelegramLongPollingBot implements Telegr
             return;
         }
 
+        // Many criteria can exceed Telegram's message limit, so pack them into as many messages as needed
         StringBuilder sb = new StringBuilder("📋 *Your Search Criteria:*\n\n");
         for (int i = 0; i < criteriaList.size(); i++) {
             var c = criteriaList.get(i);
+            StringBuilder block = new StringBuilder();
             if (criteriaList.size() > 1) {
-                sb.append("*Criteria ").append(i + 1).append(":*\n");
+                block.append("*Criteria ").append(i + 1).append(":*\n");
             }
-            sb.append("💰 Max rent: ")
-              .append(c.getMaxRent() != null ? "€" + escape(c.getMaxRent().toPlainString()) : "any").append("\n");
-            sb.append("🚪 Rooms: ")
-              .append(c.getMinRooms() != null ? escape(c.getMinRooms().toPlainString()) : "any")
+            block.append("💰 Max rent: ")
+              .append(c.getMaxRent() != null ? "€" + escape(euros(c.getMaxRent())) : "any").append("\n");
+            block.append("🚪 Rooms: ")
+              .append(c.getMinRooms() != null ? escape(c.getMinRooms().stripTrailingZeros().toPlainString()) : "any")
               .append(" \\- ")
-              .append(c.getMaxRooms() != null ? escape(c.getMaxRooms().toPlainString()) : "any").append("\n");
-            sb.append("📐 Size: ")
+              .append(c.getMaxRooms() != null ? escape(c.getMaxRooms().stripTrailingZeros().toPlainString()) : "any").append("\n");
+            block.append("📐 Size: ")
               .append(c.getMinSizeSqm() != null ? c.getMinSizeSqm() + " m²" : "any")
               .append(" \\- ")
               .append(c.getMaxSizeSqm() != null ? c.getMaxSizeSqm() + " m²" : "any").append("\n");
             if (c.getDistricts() != null && !c.getDistricts().isEmpty()) {
-                sb.append("🏘️ Districts: ").append(escape(String.join(", ", c.getDistricts()))).append("\n");
+                block.append("🏘️ Districts: ").append(formatDistricts(c.getDistricts())).append("\n");
             }
-            sb.append(c.getActive() ? "✅ Active" : "⏸️ Paused").append("\n\n");
+            block.append(c.getActive() ? "✅ Active" : "⏸️ Paused").append("\n\n");
+
+            if (sb.length() + block.length() > MAX_MESSAGE_LENGTH) {
+                sendMessage(chatId, sb.toString());
+                sb.setLength(0);
+            }
+            sb.append(block);
         }
         sendMessage(chatId, sb.toString());
     }
@@ -311,6 +336,11 @@ public class TelegramBotService extends TelegramLongPollingBot implements Telegr
                         sendMessage(chatId, "❗ Please enter a valid room count \\(e\\.g\\. *4*\\) or type *skip*\\.");
                         return;
                     }
+                    if (session.minRooms != null && value.compareTo(session.minRooms) < 0) {
+                        sendMessage(chatId, "❗ Maximum rooms can't be less than your minimum \\("
+                                + escape(session.minRooms.stripTrailingZeros().toPlainString()) + "\\)\\. Try again or type *skip*\\.");
+                        return;
+                    }
                     session.maxRooms = value;
                 }
                 session.step = CriteriaSession.Step.MIN_SIZE;
@@ -341,6 +371,11 @@ public class TelegramBotService extends TelegramLongPollingBot implements Telegr
                     Integer value = parseInteger(text);
                     if (value == null || value <= 0) {
                         sendMessage(chatId, "❗ Please enter a valid size in m² \\(e\\.g\\. *90*\\) or type *skip*\\.");
+                        return;
+                    }
+                    if (session.minSizeSqm != null && value < session.minSizeSqm) {
+                        sendMessage(chatId, "❗ Maximum size can't be less than your minimum \\("
+                                + session.minSizeSqm + " m²\\)\\. Try again or type *skip*\\.");
                         return;
                     }
                     session.maxSizeSqm = value;
@@ -396,17 +431,17 @@ public class TelegramBotService extends TelegramLongPollingBot implements Telegr
     private String buildSummary(CriteriaSession s) {
         StringBuilder sb = new StringBuilder("✅ *Search criteria saved\\!*\n\n");
         sb.append("💰 Max rent: ")
-          .append(s.maxRent != null ? "€" + escape(s.maxRent.toPlainString()) : "any").append("\n");
+          .append(s.maxRent != null ? "€" + escape(euros(s.maxRent)) : "any").append("\n");
         sb.append("🚪 Rooms: ")
-          .append(s.minRooms != null ? escape(s.minRooms.toPlainString()) : "any")
+          .append(s.minRooms != null ? escape(s.minRooms.stripTrailingZeros().toPlainString()) : "any")
           .append(" \\- ")
-          .append(s.maxRooms != null ? escape(s.maxRooms.toPlainString()) : "any").append("\n");
+          .append(s.maxRooms != null ? escape(s.maxRooms.stripTrailingZeros().toPlainString()) : "any").append("\n");
         sb.append("📐 Size: ")
           .append(s.minSizeSqm != null ? s.minSizeSqm + " m²" : "any")
           .append(" \\- ")
           .append(s.maxSizeSqm != null ? s.maxSizeSqm + " m²" : "any").append("\n");
         if (s.districts != null && !s.districts.isEmpty()) {
-            sb.append("🏘️ Districts: ").append(escape(String.join(", ", s.districts))).append("\n");
+            sb.append("🏘️ Districts: ").append(formatDistricts(s.districts)).append("\n");
         }
         sb.append("\n🔍 I'll keep scanning WG\\-Gesucht and notify you instantly when I find a match\\!");
         return sb.toString();
@@ -437,6 +472,21 @@ public class TelegramBotService extends TelegramLongPollingBot implements Telegr
     private Integer parseInteger(String text) {
         try { return Integer.parseInt(text.trim()); }
         catch (NumberFormatException e) { return null; }
+    }
+
+    /** Comma-separated, escaped district list, shortened with "…" if very long. */
+    private String formatDistricts(List<String> districts) {
+        String joined = String.join(", ", districts);
+        if (joined.length() > MAX_DISTRICTS_DISPLAY_LENGTH) {
+            joined = joined.substring(0, MAX_DISTRICTS_DISPLAY_LENGTH) + "…";
+        }
+        return escape(joined);
+    }
+
+    /** Euro amount without needless decimals: 1200.00 → "1200", 1200.5 → "1200.50". */
+    private static String euros(java.math.BigDecimal amount) {
+        java.math.BigDecimal stripped = amount.stripTrailingZeros();
+        return stripped.scale() <= 0 ? stripped.toPlainString() : amount.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
     }
 
     /** Escapes special characters for Telegram MarkdownV2. */

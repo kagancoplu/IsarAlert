@@ -208,11 +208,25 @@ curl http://localhost:8080/actuator/health
 ## 🧪 Tests
 
 ```bash
-./mvnw test
+./mvnw test      # all tests (Docker must be running)
+./mvnw verify    # tests + coverage report (target/site/jacoco/index.html) + coverage gate
 ```
 
-Repository and application-context tests use Testcontainers, so Docker must be running.
-Scraper tests run against HTML fixtures in `src/test/resources/wg-gesucht/` — if WG-Gesucht changes its markup, update the fixtures together with the selectors in `WgGesuchtScraper`.
+Most tests run the **whole application** against a real PostgreSQL (Testcontainers), with the outside world replaced by two local fake servers:
+
+| Fake | What it does |
+|------|--------------|
+| `FakeTelegramApi` | Records every message the bot sends. Like the real API, it **rejects invalid MarkdownV2 and messages over 4096 characters** with a 400, so formatting bugs fail the build instead of silently failing in the chat. Can simulate outages. |
+| `FakeWgGesucht` | Serves search and listing pages in WG-Gesucht's real markup, so scans run the real scraper over HTTP. Can simulate errors. |
+
+| Test class | Covers |
+|------------|--------|
+| `TelegramBotIntegrationTest` | Every bot command and wizard path as a user would type it: registration, invalid input, min > max, `/cancel`, group-chat commands, long `/search` lists, `/forcescan` cooldown, Telegram outages |
+| `ScanPipelineIntegrationTest` | Full scan cycles: matching per filter, multiple users, paused users, no duplicate messages, pagination, WG-Gesucht errors, Telegram retries and giving up |
+| `RestApiIntegrationTest` | All endpoints, validation errors, 400/404/405 responses, cascading deletes |
+| `WgGesuchtScraperTest` | Parsing of real-markup fixtures in `src/test/resources/wg-gesucht/` and edge cases |
+
+The build fails if coverage drops below 95% of lines or 90% of branches. If WG-Gesucht changes its markup, update the fixtures and `WgPages` together with the selectors in `WgGesuchtScraper`.
 
 ---
 

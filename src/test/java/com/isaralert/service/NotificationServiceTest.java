@@ -115,6 +115,22 @@ class NotificationServiceTest {
     }
 
     @Test
+    @DisplayName("a listing with only the required fields still produces a valid Telegram message")
+    void minimalListingMessage() throws Exception {
+        User user = testUser();
+        Listing listing = Listing.builder().id(2L).externalId("1").source(ListingSource.WG_GESUCHT)
+                .title("Nur ein Titel").url("https://www.wg-gesucht.de/1.html").build();
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        notificationService.notifyUser(user, listing);
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(telegramBotService).sendMessage(eq(123456789L), text.capture());
+        assertThat(text.getValue()).doesNotContain("Price", "Rooms", "Size", "Location", "District", "Available");
+        assertThat(com.isaralert.support.MarkdownV2.validate(text.getValue())).isEmpty();
+    }
+
+    @Test
     @DisplayName("retry should resend FAILED notifications for active users")
     void retryResendsForActiveUser() throws Exception {
         User user = testUser();

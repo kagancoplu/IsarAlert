@@ -16,6 +16,7 @@ import org.springframework.context.annotation.Configuration;
  *     request-delay-ms: 3000
  *     user-agent: "..."
  *     timeout-ms: 15000
+ *     wg-gesucht-base-url: https://www.wg-gesucht.de
  * </pre>
  */
 @Getter
@@ -34,5 +35,6 @@ public class AppProperties {
         private long requestDelayMs = 3000;
         private String userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
         private int timeoutMs = 15000;
+        private String wgGesuchtBaseUrl = "https://www.wg-gesucht.de";
     }
 }

@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -58,14 +59,15 @@ import java.util.stream.Collectors;
 @Service
 public class WgGesuchtScraper extends AbstractListingScraper {
 
-    private static final String BASE_URL = "https://www.wg-gesucht.de";
     private static final int MUNICH_CITY_CODE = 90;
     private static final int TYPE_APARTMENT = 2;
     private static final int OFFER_RENT = 1;
     private static final int MAX_PAGES = 3;
 
-    // German date format used on WG-Gesucht: "01.06.2025"
-    private static final DateTimeFormatter WG_DATE_FORMAT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
+    // German date format used on WG-Gesucht: "01.06.2025". Strict, so "31.02.2026" is rejected
+    // instead of silently becoming 28.02.2026.
+    private static final DateTimeFormatter WG_DATE_FORMAT =
+            DateTimeFormatter.ofPattern("dd.MM.uuuu").withResolverStyle(ResolverStyle.STRICT);
 
     // Compiled patterns reused across calls
     private static final Pattern EXTERNAL_ID_PATTERN = Pattern.compile("\\.(\\d{4,})\\.html");
@@ -95,9 +97,13 @@ public class WgGesuchtScraper extends AbstractListingScraper {
 
     private final ListingRepository listingRepository;
 
+    /** e.g. "https://www.wg-gesucht.de" — configurable so tests can point at a local fake server. */
+    private final String baseUrl;
+
     public WgGesuchtScraper(AppProperties appProperties, ListingRepository listingRepository) {
         super(appProperties);
         this.listingRepository = listingRepository;
+        this.baseUrl = appProperties.getScraper().getWgGesuchtBaseUrl().replaceAll("/+$", "");
     }
 
     @Override
@@ -120,7 +126,7 @@ public class WgGesuchtScraper extends AbstractListingScraper {
                 String url = buildSearchUrl(criteria, page);
                 log.debug("Scraping search page {}: {}", page, url);
 
-                Document doc = createConnection(url).referrer(BASE_URL).get();
+                Document doc = createConnection(url).referrer(baseUrl).get();
                 List<ScrapedListingDto> pageListings = parseListingsPage(doc);
 
                 if (pageListings.isEmpty()) {
@@ -147,7 +153,7 @@ public class WgGesuchtScraper extends AbstractListingScraper {
 
     private String buildSearchUrl(SearchCriteria criteria, int page) {
         StringBuilder url = new StringBuilder();
-        url.append(BASE_URL)
+        url.append(baseUrl)
                 .append("/wohnungen-in-Muenchen.")
                 .append(MUNICH_CITY_CODE).append(".")
                 .append(TYPE_APARTMENT).append(".")
@@ -214,7 +220,7 @@ public class WgGesuchtScraper extends AbstractListingScraper {
      * (price, rooms, sizeSqm, description, address, imageUrl, availableFrom).
      */
     private ScrapedListingDto buildListing(Document searchDoc, String href) {
-        String fullUrl = href.startsWith("http") ? href : BASE_URL + href;
+        String fullUrl = href.startsWith("http") ? href : baseUrl + href;
 
         // External ID from URL numeric segment
         Matcher idMatcher = EXTERNAL_ID_PATTERN.matcher(href);
@@ -249,7 +255,7 @@ public class WgGesuchtScraper extends AbstractListingScraper {
         // Fetch the detail page and enrich the builder
         try {
             respectRateLimit();
-            Document detailDoc = createConnection(fullUrl).referrer(BASE_URL).get();
+            Document detailDoc = createConnection(fullUrl).referrer(baseUrl).get();
             enrichFromDetailPage(builder, detailDoc);
         } catch (Exception e) {
             log.warn("Could not fetch detail page {} — using partial data: {}", fullUrl, e.getMessage());

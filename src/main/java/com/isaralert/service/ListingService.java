@@ -270,10 +270,5 @@ public class ListingService {
     public Page<Listing> findAll(Pageable pageable) {
         return listingRepository.findAllByOrderByScrapedAtDesc(pageable);
     }
-
-    public List<Listing> findRecentListings(int hoursBack) {
-        return listingRepository.findByScrapedAtAfter(
-                LocalDateTime.now().minusHours(hoursBack));
-    }
 }
 

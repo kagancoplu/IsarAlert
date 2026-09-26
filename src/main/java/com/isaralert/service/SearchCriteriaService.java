@@ -37,6 +37,7 @@ public class SearchCriteriaService {
      */
     @Transactional
     public SearchCriteriaResponse create(SearchCriteriaRequest request) {
+        validateRanges(request.getMinRooms(), request.getMaxRooms(), request.getMinSizeSqm(), request.getMaxSizeSqm());
         User user = userService.createOrGetUser(request.getTelegramChatId(), null, null);
 
         SearchCriteria criteria = SearchCriteria.builder()
@@ -77,6 +78,13 @@ public class SearchCriteriaService {
     public SearchCriteriaResponse update(Long id, SearchCriteriaRequest request) {
         SearchCriteria criteria = searchCriteriaRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("SearchCriteria", id));
+
+        // Validate the ranges as they'll be after the partial update
+        validateRanges(
+                request.getMinRooms()   != null ? request.getMinRooms()   : criteria.getMinRooms(),
+                request.getMaxRooms()   != null ? request.getMaxRooms()   : criteria.getMaxRooms(),
+                request.getMinSizeSqm() != null ? request.getMinSizeSqm() : criteria.getMinSizeSqm(),
+                request.getMaxSizeSqm() != null ? request.getMaxSizeSqm() : criteria.getMaxSizeSqm());
 
         if (request.getMaxRent() != null)
             criteria.setMaxRent(request.getMaxRent());
@@ -130,5 +138,16 @@ public class SearchCriteriaService {
                 .createdAt(criteria.getCreatedAt())
                 .updatedAt(criteria.getUpdatedAt())
                 .build();
+    }
+
+    /** Rejects ranges whose minimum is above their maximum (answered with 400 by the REST API). */
+    private static void validateRanges(java.math.BigDecimal minRooms, java.math.BigDecimal maxRooms,
+                                       Integer minSize, Integer maxSize) {
+        if (minRooms != null && maxRooms != null && minRooms.compareTo(maxRooms) > 0) {
+            throw new IllegalArgumentException("minRooms must not be greater than maxRooms");
+        }
+        if (minSize != null && maxSize != null && minSize > maxSize) {
+            throw new IllegalArgumentException("minSizeSqm must not be greater than maxSizeSqm");
+        }
     }
 }
