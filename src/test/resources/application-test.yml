@@ -1,0 +1,22 @@
+# ==================== Test Profile ====================
+# Used by IsarAlertApplicationTest (Testcontainers smoke test).
+# The datasource is wired dynamically via @DynamicPropertySource.
+
+spring:
+  jpa:
+    show-sql: false
+  flyway:
+    enabled: true
+    clean-disabled: false   # Allow clean in tests for a fresh schema each run
+
+isaralert:
+  scraper:
+    enabled: false          # Don't start the scheduler during tests
+
+# Suppress verbose Telegram bot startup noise in test output
+logging:
+  level:
+    root: WARN
+    com.isaralert: INFO
+    org.telegram: WARN
+    org.flywaydb: INFO

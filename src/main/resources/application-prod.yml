@@ -1,0 +1,43 @@
+# ==================== Prod Profile Overrides ====================
+# Activate with: java -jar isaralert.jar --spring.profiles.active=prod
+
+spring:
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  # Tighter connection pool for production
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+
+# ==================== Scraper — slower in prod to be more respectful ====================
+isaralert:
+  scraper:
+    request-delay-ms: 5000   # 5 s between requests in prod
+
+# ==================== Actuator — restrict exposure in prod ====================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+# ==================== Logging ====================
+logging:
+  level:
+    root: WARN
+    com.isaralert: INFO
+    org.hibernate.SQL: WARN
+    org.springframework.web: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"

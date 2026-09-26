@@ -1,0 +1,82 @@
+# ==================== Server ====================
+server:
+  port: 8080
+
+# ==================== Spring ====================
+spring:
+  application:
+    name: IsarAlert
+
+  # Keep application alive for Telegram bot long-polling thread
+  main:
+    keep-alive: true
+
+  # ==================== Database ====================
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:isaralert}
+    username: ${DB_USERNAME:isaralert}
+    password: ${DB_PASSWORD:isaralert_dev_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  # ==================== JPA / Hibernate ====================
+  jpa:
+    hibernate:
+      ddl-auto: validate  # Flyway manages schema — Hibernate only validates
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    open-in-view: false  # Best practice: disable OSIV
+
+  # ==================== Flyway ====================
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    clean-disabled: true
+
+# ==================== Telegram Bot ====================
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN:}
+    username: ${TELEGRAM_BOT_USERNAME:IsarAlertBot}
+
+# ==================== Scraper Settings ====================
+isaralert:
+  scraper:
+    enabled: true
+    cron: "${SCRAPER_CRON:0 */5 * * * *}"  # Default: every 5 minutes
+    request-delay-ms: ${SCRAPER_REQUEST_DELAY_MS:3000}
+    user-agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    timeout-ms: 15000
+
+# ==================== Actuator ====================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# ==================== Logging ====================
+logging:
+  level:
+    root: INFO
+    com.isaralert: INFO
+    org.hibernate.SQL: WARN
+
+# ==================== API Documentation (Springdoc / Swagger) ====================
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+    tryItOutEnabled: true

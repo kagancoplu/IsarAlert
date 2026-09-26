@@ -1,0 +1,59 @@
+services:
+  # ==================== PostgreSQL Database ====================
+  postgres:
+    image: postgres:16-alpine
+    container_name: isaralert-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${DB_NAME:-isaralert}
+      POSTGRES_USER: ${DB_USERNAME:-isaralert}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-isaralert_dev_password}
+    volumes:
+      - isaralert_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-isaralert}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==================== IsarAlert Application ====================
+  # Full stack:     docker compose up -d --build
+  # Database only:  docker compose up -d postgres   (then run the app with Maven)
+  app:
+    build: .
+    container_name: isaralert-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: postgres          # service name, overrides DB_HOST=localhost from .env
+      DB_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ==================== pgAdmin (Optional — for DB inspection) ====================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: isaralert-pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@isaralert.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - tools  # Only starts with: docker compose --profile tools up
+
+volumes:
+  isaralert_pgdata:
+    driver: local
